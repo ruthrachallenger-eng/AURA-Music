@@ -1,339 +1,55 @@
-/* AURA V3 application core — local-first, defensive and dependency-free */
-(() => {
-  "use strict";
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const DB='aura_v4_db', VER=1; let db=null;
+const builtin=[
+{id:'aura-neon',title:'Neon Drive',artist:'AURA Originals',album:'AURA Originals',mood:'Energy',genre:'Synthwave',src:'assets/audio/neon-drive.mp3',duration:24,lyrics:[[0,'City lights are waking up'],[5,'Neon roads beneath the sky'],[10,'Keep the rhythm moving'],[16,'We ride the midnight line'],[21,'AURA in the night']]},
+{id:'aura-rain',title:'Midnight Rain',artist:'AURA Originals',album:'AURA Originals',mood:'Chill',genre:'Ambient',src:'assets/audio/midnight-rain.mp3',duration:24,lyrics:[[0,'Rain is falling softly'],[6,'Streetlights blur to gold'],[12,'Breathe in the quiet'],[18,'Let the night unfold'],[22,'Stay a little longer']]},
+{id:'aura-solar',title:'Solar Pulse',artist:'AURA Originals',album:'AURA Originals',mood:'Workout',genre:'Electronic',src:'assets/audio/solar-pulse.mp3',duration:24,lyrics:[[0,'Feel the pulse rise'],[5,'Higher than the morning'],[10,'Move with the sunlight'],[16,'Nothing can slow us'],[21,'Run into the future']]},
+{id:'aura-dream',title:'Aurora Dream',artist:'AURA Originals',album:'AURA Originals',mood:'Focus',genre:'Dream Pop',src:'assets/audio/aurora-dream.mp3',duration:24,lyrics:[[0,'Northern colors in the dark'],[6,'A quiet spark becomes a flame'],[12,'Hold the moment'],[18,'Drift beyond the clouds'],[22,'Wake inside the dream']]}
+];
+const state={tracks:[],queue:[],index:-1,shuffle:false,repeat:'off',favorites:new Set(),playlists:{},view:'home',search:'',theme:localStorage.auraTheme||'dark',sleep:null,rate:1, eq:[0,0,0], dbReady:false};
+const audio=$('#audio'); let ctx,srcNode,gain,filters=[],analyser,raf,installPrompt=null;
+function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DB,VER);r.onupgradeneeded=()=>{const d=r.result;['tracks','blobs','meta'].forEach(s=>{if(!d.objectStoreNames.contains(s))d.createObjectStore(s,{keyPath:'id'})});};r.onsuccess=()=>{db=r.result;state.dbReady=true;res()};r.onerror=()=>rej(r.error)})}
+function tx(store,mode='readonly'){return db.transaction(store,mode).objectStore(store)}
+async function getAll(store){if(!db)return[];return new Promise((res,rej)=>{let r=tx(store).getAll();r.onsuccess=()=>res(r.result||[]);r.onerror=()=>rej(r.error)})}
+async function put(store,obj){if(!db)return;return new Promise((res,rej)=>{let r=tx(store,'readwrite').put(obj);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
+async function load(){try{await openDB(); const custom=await getAll('tracks'); state.tracks=[...builtin,...custom.filter(x=>!builtin.some(b=>b.id===x.id))]; const meta=await getAll('meta'); for(const m of meta){if(m.id==='favorites')state.favorites=new Set(m.value||[]);if(m.id==='playlists')state.playlists=m.value||{};} $('#status').textContent='Local + offline ready'}catch(e){state.tracks=[...builtin];$('#status').textContent='Demo mode'}}
+async function saveMeta(id,value){await put('meta',{id,value})}
+function esc(s=''){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function fmt(s){s=Math.max(0,Math.floor(s||0));return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`}
+function filtered(){let q=state.search.toLowerCase().trim();return state.tracks.filter(t=>!q||`${t.title} ${t.artist} ${t.album} ${t.genre} ${t.mood}`.toLowerCase().includes(q))}
+function cover(t){return `<div class="cover">${esc((t.title||'A')[0])}</div>`}
+function trackRow(t,i){return `<div class="track" data-id="${esc(t.id)}"><div>${i+1}</div><div class="mini">${esc((t.title||'A')[0])}</div><div class="track-main"><strong>${esc(t.title)}</strong><span>${esc(t.artist)}</span></div><div class="track-meta">${esc(t.album||'Single')}</div><div class="track-time">${fmt(t.duration)}</div></div>`}
+function home(){const ts=filtered();return `<div class="hero"><div class="hero-card"><div class="tag">AURA V4 • PHONE + PC</div><h1>Your music.<br>More control.</h1><p class="muted">A local-first player with built-in AURA Originals, advanced audio controls, smart mixes, lyrics, visualizer and offline playback.</p><div class="actions"><button class="primary" data-action="play-all">▶ Play all</button><button class="secondary" data-action="smart">✦ Smart Mix</button></div></div><div class="feature"><div class="tag">AUDIO LAB</div><h3>Sound you can shape</h3><p>3-band EQ, compressor, analyser, playback speed, sleep timer and visualizer — all processed in your browser.</p><span class="pill">EQ</span><span class="pill">Visualizer</span><span class="pill">Crossfade</span><span class="pill">Offline</span></div></div><div class="section"><div class="section-head"><h2>AURA Originals</h2><button data-action="view-library">See all</button></div><div class="cards">${state.tracks.slice(0,4).map(t=>`<div class="card" data-id="${esc(t.id)}">${cover(t)}<h3>${esc(t.title)}</h3><p>${esc(t.artist)}</p></div>`).join('')}</div></div><div class="section"><div class="section-head"><h2>All music</h2></div><div class="tracklist">${ts.length?ts.slice(0,12).map((t,i)=>trackRow(t,i)).join(''):`<div class="empty"><strong>No music found</strong>Try another search or add your own files.</div>`}</div></div>`}
+function library(){const ts=filtered();return `<div class="section-head"><h2>Library <span class="muted">${state.tracks.length} tracks</span></h2><button data-action="import">＋ Add music</button></div><div class="tracklist">${ts.length?ts.map((t,i)=>trackRow(t,i)).join(''):`<div class="empty"><strong>Your library is empty</strong>Use Add music to import audio files.</div>`}</div>`}
+function smart(){const moods=['Energy','Chill','Workout','Focus'];return `<div class="hero"><div class="hero-card"><div class="tag">SMART MIX ENGINE</div><h1>Pick a vibe.</h1><p class="muted">AURA builds a queue from your local library using mood, genre and listening history.</p><div class="actions">${moods.map(m=>`<button class="secondary" data-mood="${m}">${m}</button>`).join('')}</div></div><div class="feature"><div class="tag">PRIVATE BY DEFAULT</div><h3>No listening history leaves your device</h3><p class="muted">V4 keeps library data in IndexedDB. Cloud sync can be added later as a separate backend layer.</p></div></div><div class="section"><div class="section-head"><h2>Smart suggestions</h2></div><div class="cards">${moods.map(m=>{let t=state.tracks.find(x=>x.mood===m);return `<div class="card" data-mood="${m}"><div class="cover">${m[0]}</div><h3>${m} Mix</h3><p>${t?esc(t.artist):'Build from your library'}</p></div>`}).join('')}</div></div>`}
+function playlists(){let names=Object.keys(state.playlists);return `<div class="section-head"><h2>Playlists</h2><button data-action="new-playlist">＋ New playlist</button></div>${names.length?`<div class="cards">${names.map(n=>`<div class="card" data-playlist="${esc(n)}"><div class="cover">♫</div><h3>${esc(n)}</h3><p>${state.playlists[n].length} tracks</p></div>`).join('')}</div>`:`<div class="empty"><strong>No playlists yet</strong>Create one and build your own sets.</div>`}`}
+function favorites(){let ts=state.tracks.filter(t=>state.favorites.has(t.id));return `<div class="section-head"><h2>Favorites</h2></div><div class="tracklist">${ts.length?ts.map((t,i)=>trackRow(t,i)).join(''):`<div class="empty"><strong>No favorites</strong>Tap ♡ while a track is playing.</div>`}</div>`}
+function lyricsView(){let t=current();return `<div class="hero-card"><div class="tag">LYRICS</div><h1>${t?esc(t.title):'Lyrics'}</h1><p class="muted">${t?esc(t.artist):'Start a track to see lyrics here.'}</p>${t?.lyrics?`<div style="margin-top:24px">${t.lyrics.map(x=>`<p style="font-size:17px;margin:12px 0">${esc(x[1])}</p>`).join('')}</div>`:''}</div>`}
+function render(){let c=$('#content'); if(state.view==='home')c.innerHTML=home();else if(state.view==='library')c.innerHTML=library();else if(state.view==='smart')c.innerHTML=smart();else if(state.view==='playlists')c.innerHTML=playlists();else if(state.view==='favorites')c.innerHTML=favorites();else c.innerHTML=lyricsView();}
+function current(){return state.index>=0?state.queue[state.index]:null}
+function setView(v){state.view=v;$$('.nav').forEach(n=>n.classList.toggle('active',n.dataset.view===v));render();$('#sidebar').classList.remove('open')}
+function makeQueue(list=filtered()){state.queue=[...list];state.index=-1;if(state.shuffle)state.queue.sort(()=>Math.random()-.5)}
+async function play(t){if(!t)return; if(!state.queue.some(x=>x.id===t.id))makeQueue(state.tracks); state.index=state.queue.findIndex(x=>x.id===t.id); const blob=db?await new Promise(r=>{let q=tx('blobs').get(t.id);q.onsuccess=()=>r(q.result?.blob||null);q.onerror=()=>r(null)}):null; audio.src=blob?URL.createObjectURL(blob):t.src; audio.playbackRate=state.rate; await audio.play().catch(()=>{}); updateNow();}
+function updateNow(){let t=current();$('#nowTitle').textContent=t?.title||'Nothing playing';$('#nowArtist').textContent=t?.artist||'Choose a track';$('#ptitle').textContent=t?.title||'Nothing playing';$('#partist').textContent=t?.artist||'AURA V4';$('#thumb').textContent=(t?.title||'A')[0];$('#fav').textContent=t&&state.favorites.has(t.id)?'♥':'♡';renderLyricsScroll();}
+function next(){if(!state.queue.length)return; if(state.repeat==='one'){audio.currentTime=0;audio.play();return} if(state.index<state.queue.length-1)state.index++;else if(state.repeat==='all')state.index=0;else return stop(); loadCurrent(true)}
+function prev(){if(audio.currentTime>4){audio.currentTime=0;return}if(state.index>0){state.index--;loadCurrent(true)}}
+async function loadCurrent(autoplay=false){let t=current();if(!t)return;await play(t);if(!autoplay)audio.pause()}
+function stop(){audio.pause();audio.currentTime=0;$('#play').textContent='▶'}
+function togglePlay(){if(!current()){let list=filtered();if(list[0])return play(list[0]);return}audio.paused?audio.play():audio.pause()}
+function renderLyricsScroll(){const t=current(); if(t&&state.view==='lyrics')render()}
+function queueDrawer(){let el=document.querySelector('.drawer');if(el){el.remove();return}let d=document.createElement('div');d.className='drawer';d.style.cssText='position:fixed;right:18px;bottom:110px;width:min(390px,calc(100vw - 30px));max-height:65vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:18px;box-shadow:0 18px 60px #0009;z-index:30;padding:15px';d.innerHTML=`<h3 style="margin:0 0 10px">Queue</h3>${state.queue.length?state.queue.map((t,i)=>`<div style="display:flex;gap:8px;padding:8px;border-radius:8px" data-q="${i}"><div style="flex:1;min-width:0"><strong style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.title)}</strong><span style="font-size:11px;color:var(--muted)">${esc(t.artist)}</span></div></div>`).join(''):'<p class="muted">Queue is empty</p>'}`;document.body.appendChild(d);d.addEventListener('click',e=>{let q=e.target.closest('[data-q]');if(q){state.index=+q.dataset.q;loadCurrent(true);d.remove()}})}
+function audioGraph(){if(ctx)return;ctx=new (window.AudioContext||window.webkitAudioContext)();srcNode=ctx.createMediaElementSource(audio);gain=ctx.createGain();filters=[80,1000,8000].map((f,i)=>{let b=ctx.createBiquadFilter();b.type='peaking';b.frequency.value=f;b.Q.value=.8;b.gain.value=state.eq[i];return b});analyser=ctx.createAnalyser();analyser.fftSize=256;let comp=ctx.createDynamicsCompressor();srcNode.connect(filters[0]);filters[0].connect(filters[1]);filters[1].connect(filters[2]);filters[2].connect(comp);comp.connect(gain);gain.connect(analyser);analyser.connect(ctx.destination);drawViz()}
+function drawViz(){const c=$('#visualizer'),x=c.getContext('2d');function f(){raf=requestAnimationFrame(f);if(!analyser)return;let a=new Uint8Array(analyser.frequencyBinCount);analyser.getByteFrequencyData(a);x.clearRect(0,0,c.width,c.height);c.width=innerWidth;c.height=3;let avg=a.reduce((p,v)=>p+v,0)/a.length;x.fillStyle='rgba(183,156,255,.9)';x.fillRect(0,0,innerWidth*(avg/255),3);let m=$('#vizMini');if(m){m.width=m.clientWidth*2;m.height=110;let q=m.getContext('2d');q.clearRect(0,0,m.width,m.height);q.strokeStyle='rgba(125,231,255,.8)';q.lineWidth=3;q.beginPath();a.forEach((v,i)=>{let px=i/(a.length-1)*m.width,py=m.height-v/255*m.height;if(i)q.lineTo(px,py);else q.moveTo(px,py)});q.stroke()}}f()}
+async function importFiles(files){for(const file of files){let id='local-'+crypto.randomUUID();let title=file.name.replace(/\.[^.]+$/,'');let artist='Local file';if(title.includes(' - ')){[artist,title]=title.split(' - ').map(s=>s.trim())}let dur=0;try{dur=await new Promise(res=>{let a=document.createElement('audio');a.preload='metadata';a.onloadedmetadata=()=>{res(a.duration||0);URL.revokeObjectURL(a.src)};a.onerror=()=>res(0);a.src=URL.createObjectURL(file)})}catch{}let t={id,title,artist,album:'Local',genre:'Imported',mood:'Custom',duration:dur};state.tracks.push(t);if(db){await put('tracks',t);await put('blobs',{id,blob:file})}}render();toast(`${files.length} track${files.length>1?'s':''} added`)}
+function settings(){const m=$('#modal');$('#modalBody').innerHTML=`<h2>Audio Lab</h2><p class="muted">Tune AURA's sound and playback.</p><div class="grid2"><div><div class="field"><label>Playback speed: <b id="rateVal">${state.rate.toFixed(2)}×</b></label><input id="rate" type="range" min="0.5" max="1.5" step=".05" value="${state.rate}"></div><div class="field"><label>Sleep timer</label><select id="sleepSel"><option value="0">Off</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">60 min</option></select></div></div><div><div class="field"><label>EQ Low <input class="eq" data-e="0" type="range" min="-12" max="12" value="${state.eq[0]}"></label></div><div class="field"><label>EQ Mid <input class="eq" data-e="1" type="range" min="-12" max="12" value="${state.eq[1]}"></label></div><div class="field"><label>EQ High <input class="eq" data-e="2" type="range" min="-12" max="12" value="${state.eq[2]}"></label></div></div></div><div class="modal-actions"><button class="secondary" data-close>Close</button></div>`;m.showModal();$('#rate').oninput=e=>{state.rate=+e.target.value;$('#rateVal').textContent=state.rate.toFixed(2)+'×';audio.playbackRate=state.rate};$('#sleepSel').onchange=e=>setSleep(+e.target.value);$$('.eq').forEach(el=>el.oninput=e=>{state.eq[+e.target.dataset.e]=+e.target.value;if(filters[+e.target.dataset.e])filters[+e.target.dataset.e].gain.value=+e.target.value});}
+function setSleep(min){if(state.sleep)clearTimeout(state.sleep);if(min)state.sleep=setTimeout(()=>{stop();toast('Sleep timer ended')},min*60000);toast(min?`Sleep timer: ${min} min`:'Sleep timer off')}
+function toast(msg){let t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._x);t._x=setTimeout(()=>t.classList.remove('show'),1800)}
+async function createPlaylist(){let name=prompt('Playlist name');if(!name)return;state.playlists[name]=[];await saveMeta('playlists',state.playlists);render();toast('Playlist created')}
+function playMood(m){let list=state.tracks.filter(t=>t.mood===m);if(!list.length)list=[...state.tracks].sort(()=>Math.random()-.5).slice(0,8);state.queue=list;state.index=0;loadCurrent(true)}
 
-  const $ = (s, root=document) => root.querySelector(s);
-  const $$ = (s, root=document) => [...root.querySelectorAll(s)];
-  const uid = () => crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const clamp = (n,min,max) => Math.min(max, Math.max(min,n));
-  const esc = (s="") => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const fmt = s => { if (!Number.isFinite(s) || s < 0) return "0:00"; const m=Math.floor(s/60), sec=Math.floor(s%60).toString().padStart(2,"0"); return `${m}:${sec}`; };
-
-  const state = {
-    tracks: [], playlists: [], favorites: new Set(), queue: [], currentId: null,
-    view: "home", filter: "", shuffle: false, repeat: "off", sort: "recent",
-    theme: localStorage.getItem("aura-theme") || "dark", objectUrls: new Map(),
-    deferredInstall: null, db: null, audioCtx: null, analyser: null, sourceNode: null
-  };
-
-  const audio = $("#audio");
-  const content = $("#content");
-  const modal = $("#modal");
-  const toastEl = $("#toast");
-
-  function toast(msg) {
-    toastEl.textContent = msg; toastEl.classList.add("show");
-    clearTimeout(toast._t); toast._t = setTimeout(() => toastEl.classList.remove("show"), 2300);
-  }
-
-  function openModal(html) { $("#modalBody").innerHTML=html; modal.showModal(); }
-  function closeModal() { if(modal.open) modal.close(); }
-
-  async function openDB() {
-    if (!("indexedDB" in window)) return null;
-    return new Promise(resolve => {
-      const req=indexedDB.open("aura-v3",1);
-      req.onupgradeneeded=() => {
-        const db=req.result;
-        if(!db.objectStoreNames.contains("tracks")) db.createObjectStore("tracks",{keyPath:"id"});
-        if(!db.objectStoreNames.contains("blobs")) db.createObjectStore("blobs",{keyPath:"id"});
-        if(!db.objectStoreNames.contains("playlists")) db.createObjectStore("playlists",{keyPath:"id"});
-        if(!db.objectStoreNames.contains("meta")) db.createObjectStore("meta",{keyPath:"key"});
-      };
-      req.onsuccess=()=>resolve(req.result); req.onerror=()=>resolve(null);
-    });
-  }
-  const tx = (store, mode="readonly") => state.db?.transaction(store,mode).objectStore(store);
-  const reqPromise = req => new Promise((res,rej)=>{req.onsuccess=()=>res(req.result);req.onerror=()=>rej(req.error);});
-
-  async function loadDB() {
-    state.db=await openDB();
-    if(!state.db) { loadMetaFallback(); return; }
-    try {
-      state.tracks=await reqPromise(tx("tracks").getAll());
-      const pls=await reqPromise(tx("playlists").getAll()); state.playlists=pls || [];
-      const meta=await reqPromise(tx("meta").get("state"));
-      if(meta?.value){state.favorites=new Set(meta.value.favorites||[]); state.theme=meta.value.theme||state.theme; state.sort=meta.value.sort||"recent";}
-      applyTheme();
-    } catch(e) { console.warn("DB load:",e); toast("Library storage is unavailable; using session mode."); }
-  }
-  function loadMetaFallback(){ try{const x=JSON.parse(localStorage.getItem("aura-meta")||"{}");state.favorites=new Set(x.favorites||[]);state.playlists=x.playlists||[];}catch{} }
-  async function saveMeta() {
-    const value={favorites:[...state.favorites],theme:state.theme,sort:state.sort};
-    if(state.db){try{await reqPromise(tx("meta","readwrite").put({key:"state",value}));}catch(e){console.warn(e)}}
-    else localStorage.setItem("aura-meta",JSON.stringify({...value,playlists:state.playlists}));
-  }
-  async function saveTrack(t, blob) {
-    if(!state.db){ return; }
-    try { await reqPromise(tx("tracks","readwrite").put(t)); if(blob) await reqPromise(tx("blobs","readwrite").put({id:t.id,blob})); }
-    catch(e){console.error(e);toast("Could not save this track.");}
-  }
-  async function getBlob(id) {
-    if(!state.db) return null;
-    try { return (await reqPromise(tx("blobs").get(id)))?.blob || null; } catch{return null}
-  }
-
-  function parseName(name) {
-    const clean=name.replace(/\.[^/.]+$/,"").trim();
-    const parts=clean.split(/\s[-–—]\s/);
-    if(parts.length>=2) return {artist:parts[0].trim(),title:parts.slice(1).join(" - ").trim()};
-    return {artist:"Unknown artist",title:clean||"Untitled"};
-  }
-  function durationFor(t){return Number.isFinite(t.duration)?t.duration:0}
-  function trackView(t, i=0) {
-    return `<div class="track" data-track="${esc(t.id)}">
-      <div class="track-no">${i+1}</div><div class="track-cover">${esc((t.title||"A")[0].toUpperCase())}</div>
-      <div class="track-main"><strong>${esc(t.title)}</strong><span>${esc(t.artist||"Unknown artist")}</span></div>
-      <div class="track-album">${esc(t.album||"Single")}</div><div class="track-time">${fmt(durationFor(t))}</div>
-      <button class="track-more" data-track-menu="${esc(t.id)}" aria-label="Track menu">•••</button>
-    </div>`;
-  }
-  function card(t) {
-    return `<div class="card" data-track="${esc(t.id)}"><div class="cover">${esc((t.title||"A")[0].toUpperCase())}</div><h3>${esc(t.title)}</h3><p>${esc(t.artist||"Unknown artist")}</p></div>`;
-  }
-  function filteredTracks() {
-    const q=state.filter.trim().toLowerCase();
-    let arr=state.tracks.filter(t => !q || [t.title,t.artist,t.album,t.genre].join(" ").toLowerCase().includes(q));
-    if(state.sort==="title") arr.sort((a,b)=>a.title.localeCompare(b.title));
-    else if(state.sort==="artist") arr.sort((a,b)=>(a.artist||"").localeCompare(b.artist||""));
-    else arr.sort((a,b)=>(b.addedAt||0)-(a.addedAt||0));
-    return arr;
-  }
-
-  function render() {
-    const nav=$$(".nav-item[data-view]"); nav.forEach(n=>n.classList.toggle("active",n.dataset.view===state.view));
-    if(state.view==="home") renderHome();
-    else if(state.view==="library") renderLibrary();
-    else if(state.view==="playlists") renderPlaylists();
-    else if(state.view==="albums") renderAlbums();
-    else if(state.view==="artists") renderArtists();
-    else if(state.view==="favorites") renderFavorites();
-    updatePlayer();
-  }
-
-  function renderHome() {
-    const tracks=filteredTracks();
-    const recent=[...state.tracks].sort((a,b)=>(b.addedAt||0)-(a.addedAt||0)).slice(0,6);
-    content.innerHTML=`
-      <div class="hero"><div class="hero-card"><div class="eyebrow">AURA V3 • LOCAL-FIRST</div><div class="hero"><h1>Your music.<br>Everywhere.</h1></div><p>One responsive player for phone and PC. Import your audio once, keep your library on-device, and play offline.</p>
-      <div class="hero-actions"><button class="primary" data-action="import">＋ Add music</button><button class="secondary" data-view="library">Open library</button></div></div>
-      <div class="hero-card"><div class="eyebrow">SYSTEM</div><h2>${state.tracks.length} tracks</h2><p>Offline-ready interface, queue, playlists, favorites, search, keyboard controls, visualizer hooks and installable PWA shell.</p><button class="secondary" data-action="settings">Settings & diagnostics</button></div></div>
-      <div class="section"><div class="section-head"><h2>Recently added</h2><button data-view="library">See all</button></div>
-      ${recent.length?`<div class="cards">${recent.map(card).join("")}</div>`:`<div class="empty"><strong>Your library is empty</strong>Import MP3, WAV, OGG, M4A or other browser-supported audio files to start.</div>`}</div>
-      ${tracks.length?`<div class="section"><div class="section-head"><h2>Quick play</h2></div><div class="track-list">${tracks.slice(0,8).map((t,i)=>trackView(t,i)).join("")}</div></div>`:""}`;
-  }
-
-  function renderLibrary() {
-    const tracks=filteredTracks();
-    content.innerHTML=`<div class="section-head"><h2>Library <span style="color:var(--muted);font-size:12px">${tracks.length} tracks</span></h2><div><button class="secondary" data-action="sort">Sort: ${esc(state.sort)}</button> <button class="primary" data-action="import">＋ Add music</button></div></div>
-      ${tracks.length?`<div class="track-list">${tracks.map((t,i)=>trackView(t,i)).join("")}</div>`:`<div class="empty"><strong>No music yet</strong>Use “Add music” and choose audio files from your device.</div>`}`;
-  }
-
-  function renderFavorites() {
-    const arr=filteredTracks().filter(t=>state.favorites.has(t.id));
-    content.innerHTML=`<div class="section-head"><h2>Favorites</h2></div>${arr.length?`<div class="track-list">${arr.map((t,i)=>trackView(t,i)).join("")}</div>`:`<div class="empty"><strong>No favorites</strong>Tap the heart while a song is playing.</div>`}`;
-  }
-
-  function renderAlbums() {
-    const map=new Map(); state.tracks.forEach(t=>{const k=t.album||"Singles"; if(!map.has(k))map.set(k,t)});
-    content.innerHTML=`<div class="section-head"><h2>Albums</h2></div><div class="cards">${[...map.entries()].map(([name,t])=>`<div class="card" data-album="${esc(name)}"><div class="cover">${esc(name[0].toUpperCase())}</div><h3>${esc(name)}</h3><p>${esc(t.artist||"Various artists")}</p></div>`).join("")||`<div class="empty"><strong>No albums</strong>Album grouping appears as you add tagged files.</div>`}</div>`;
-  }
-
-  function renderArtists() {
-    const map=new Map(); state.tracks.forEach(t=>{const k=t.artist||"Unknown artist";map.set(k,(map.get(k)||0)+1)});
-    content.innerHTML=`<div class="section-head"><h2>Artists</h2></div><div class="cards">${[...map.entries()].sort().map(([name,n])=>`<div class="card" data-artist="${esc(name)}"><div class="cover">${esc(name[0].toUpperCase())}</div><h3>${esc(name)}</h3><p>${n} track${n===1?"":"s"}</p></div>`).join("")||`<div class="empty"><strong>No artists</strong>Add music to build your artist library.</div>`}</div>`;
-  }
-
-  function renderPlaylists() {
-    content.innerHTML=`<div class="section-head"><h2>Playlists</h2><button class="primary" data-action="new-playlist">＋ New playlist</button></div><div class="cards">${state.playlists.map(p=>`<div class="card" data-playlist="${esc(p.id)}"><div class="cover">♫</div><h3>${esc(p.name)}</h3><p>${p.trackIds.length} tracks</p></div>`).join("")||`<div class="empty"><strong>No playlists</strong>Create a playlist and add songs from the track menu.</div>`}</div>`;
-  }
-
-  function showCollection(title, tracks) {
-    openModal(`<h2>${esc(title)}</h2><div class="track-list">${tracks.map((t,i)=>trackView(t,i)).join("")||`<div class="empty">No tracks found.</div>`}</div><div class="modal-actions"><button class="secondary" data-action="close-modal">Close</button></div>`);
-  }
-
-  function updatePlayer() {
-    const t=state.tracks.find(x=>x.id===state.currentId);
-    $("#nowTitle").textContent=t?.title||"Nothing playing"; $("#nowArtist").textContent=t?.artist||"Choose a song from your library";
-    $("#playerTitle").textContent=t?.title||"Nothing playing"; $("#playerArtist").textContent=t?.artist||"AURA V3";
-    $("#playerThumb").textContent=(t?.title||"A")[0].toUpperCase();
-    $("#favoriteBtn").textContent=t&&state.favorites.has(t.id)?"♥":"♡";
-    $("#playBtn").textContent=audio.paused?"▶":"Ⅱ";
-    $("#currentTime").textContent=fmt(audio.currentTime); $("#duration").textContent=fmt(audio.duration);
-    $("#seek").value=audio.duration?((audio.currentTime/audio.duration)*100):0;
-    $("#shuffleBtn").textContent=state.shuffle?"⤨•":"⤨"; $("#repeatBtn").textContent=state.repeat==="one"?"↻1":state.repeat==="all"?"↻":"↻";
-  }
-
-  async function ensureObjectURL(t) {
-    if(state.objectUrls.has(t.id)) return state.objectUrls.get(t.id);
-    const blob=await getBlob(t.id); if(!blob) return t.src||"";
-    const url=URL.createObjectURL(blob); state.objectUrls.set(t.id,url); return url;
-  }
-
-  async function playTrack(id, autoplay=true) {
-    const t=state.tracks.find(x=>x.id===id); if(!t) return;
-    try {
-      const src=await ensureObjectURL(t); if(!src) {toast("Audio data is missing. Re-import this file.");return;}
-      state.currentId=id; audio.src=src; audio.load(); updatePlayer();
-      if(autoplay) await audio.play();
-      setMediaSession(t); updatePlayer();
-      if(window.innerWidth<760) $("#nowPanel")?.classList.remove("open");
-    } catch(e){console.error(e);toast("Playback could not start. Try the track again.");}
-  }
-  function setMediaSession(t) {
-    if(!("mediaSession" in navigator)) return;
-    try {
-      navigator.mediaSession.metadata=new MediaMetadata({title:t.title||"Untitled",artist:t.artist||"Unknown artist",album:t.album||"AURA V3"});
-      navigator.mediaSession.playbackState=audio.paused?"paused":"playing";
-    } catch{}
-  }
-  function nextTrack() {
-    if(!state.tracks.length)return;
-    const list=state.queue.length?state.queue.map(id=>state.tracks.find(t=>t.id===id)).filter(Boolean):filteredTracks();
-    if(!list.length)return;
-    const idx=Math.max(0,list.findIndex(t=>t.id===state.currentId));
-    let next;
-    if(state.repeat==="one"){next=state.currentId}
-    else if(state.shuffle){next=list[Math.floor(Math.random()*list.length)].id}
-    else next=list[(idx+1)%list.length].id;
-    if(state.repeat==="off" && !state.shuffle && idx===list.length-1 && state.queue.length===0) return;
-    playTrack(next);
-  }
-  function prevTrack(){const list=state.queue.length?state.queue.map(id=>state.tracks.find(t=>t.id===id)).filter(Boolean):filteredTracks();const i=list.findIndex(t=>t.id===state.currentId);if(audio.currentTime>4){audio.currentTime=0;return}if(i>0)playTrack(list[i-1].id);else if(list.length)playTrack(list[list.length-1].id)}
-  function togglePlay(){if(!state.currentId){const t=filteredTracks()[0];if(t)playTrack(t.id);return}if(audio.paused)audio.play().catch(()=>toast("Tap play again to allow audio."));else audio.pause();}
-
-  async function importFiles(files) {
-    const arr=[...files].filter(f=>f.type.startsWith("audio/")||/\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(f.name));
-    if(!arr.length){toast("No supported audio files selected.");return}
-    let added=0;
-    for(const file of arr){
-      const meta=parseName(file.name);
-      const t={id:uid(),title:meta.title,artist:meta.artist,album:"Local files",genre:"",duration:0,size:file.size,mime:file.type,addedAt:Date.now(),fileName:file.name};
-      try{const u=URL.createObjectURL(file); const probe=new Audio(); probe.preload="metadata"; probe.src=u; await new Promise(r=>{probe.onloadedmetadata=r;probe.onerror=r;setTimeout(r,2500)}); if(Number.isFinite(probe.duration))t.duration=probe.duration; URL.revokeObjectURL(u);}catch{}
-      await saveTrack(t,file); state.tracks.push(t); added++;
-    }
-    await saveMeta(); render(); toast(`${added} track${added===1?"":"s"} added to AURA.`);
-  }
-
-  function newPlaylist() {
-    openModal(`<h2>New playlist</h2><div class="form-row"><label>Name</label><input id="playlistName" maxlength="60" placeholder="My playlist" autofocus></div><div class="modal-actions"><button class="secondary" data-action="close-modal">Cancel</button><button class="primary" data-action="save-playlist">Create</button></div>`);
-  }
-  async function savePlaylist() {
-    const name=$("#playlistName")?.value.trim(); if(!name){toast("Enter a playlist name.");return}
-    const p={id:uid(),name,trackIds:[],createdAt:Date.now()}; state.playlists.push(p);
-    if(state.db) try{await reqPromise(tx("playlists","readwrite").put(p));}catch(e){console.error(e)}
-    await saveMeta();closeModal();render();toast("Playlist created.");
-  }
-
-  function trackMenu(id) {
-    const t=state.tracks.find(x=>x.id===id); if(!t)return;
-    openModal(`<h2>${esc(t.title)}</h2><p>${esc(t.artist||"Unknown artist")}</p>
-      <div class="modal-actions" style="justify-content:flex-start;flex-wrap:wrap">
-      <button class="primary" data-play-now="${esc(id)}">▶ Play</button>
-      <button class="secondary" data-add-queue="${esc(id)}">＋ Add to queue</button>
-      <button class="secondary" data-fav-track="${esc(id)}">${state.favorites.has(id)?"♥ Unfavorite":"♡ Favorite"}</button>
-      <button class="secondary" data-add-playlist="${esc(id)}">Add to playlist</button></div>
-      <div class="modal-actions"><button class="secondary" data-action="close-modal">Close</button></div>`);
-  }
-  async function addToPlaylist(id) {
-    if(!state.playlists.length){closeModal();newPlaylist();toast("Create a playlist first.");return}
-    openModal(`<h2>Add to playlist</h2><div class="form-row"><select id="playlistSelect">${state.playlists.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></div><div class="modal-actions"><button class="secondary" data-action="close-modal">Cancel</button><button class="primary" data-action="confirm-add-playlist" data-track-id="${esc(id)}">Add</button></div>`);
-  }
-  async function confirmAddPlaylist(id) {
-    const p=state.playlists.find(x=>x.id===$("#playlistSelect")?.value);if(!p)return;
-    if(!p.trackIds.includes(id))p.trackIds.push(id);
-    if(state.db)try{await reqPromise(tx("playlists","readwrite").put(p));}catch(e){console.error(e)}
-    closeModal();toast(`Added to ${p.name}`);
-  }
-
-  function queueDrawer(){
-    let el=$("#queueDrawer"); if(el){el.remove();return}
-    el=document.createElement("div");el.id="queueDrawer";el.className="queue-drawer";
-    el.innerHTML=`<h3>Queue <button class="track-more" data-action="queue-clear">Clear</button></h3>${state.queue.map(id=>state.tracks.find(t=>t.id===id)).filter(Boolean).map(t=>`<div class="queue-item"><div><strong>${esc(t.title)}</strong><span>${esc(t.artist)}</span></div><button class="track-more" data-play-now="${esc(t.id)}">▶</button></div>`).join("")||`<div class="empty">Queue is empty.</div>`}`;
-    document.body.appendChild(el);
-  }
-
-  function settings(){
-    openModal(`<h2>AURA V3 Settings</h2>
-      <div class="form-row"><label>Library</label><div>${state.tracks.length} tracks stored locally. Audio files remain on this device/browser profile.</div></div>
-      <div class="form-row"><label>Theme</label><select id="themeSelect"><option value="dark" ${state.theme==="dark"?"selected":""}>Dark</option><option value="light" ${state.theme==="light"?"selected":""}>Light</option></select></div>
-      <div class="form-row"><label>Keyboard</label><div>Space play/pause · ←/→ seek · Ctrl/Cmd+K search · N next · P previous</div></div>
-      <div class="form-row"><label>Cloud sync</label><div style="color:var(--muted)">V3 is deliberately local-first. A future sync service can be connected without changing the player UI.</div></div>
-      <div class="modal-actions"><button class="secondary" data-action="export-data">Export library data</button><button class="secondary" data-action="close-modal">Close</button></div>`);
-  }
-  function applyTheme(){document.documentElement.classList.toggle("light",state.theme==="light");localStorage.setItem("aura-theme",state.theme)}
-  function exportData(){const data={version:3,tracks:state.tracks.map(({id,title,artist,album,genre,duration,size,mime,addedAt,fileName})=>({id,title,artist,album,genre,duration,size,mime,addedAt,fileName})),playlists:state.playlists,favorites:[...state.favorites]};const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="aura-v3-library.json";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500);toast("Library data exported.");}
-
-  document.addEventListener("click", async e=>{
-    const nav=e.target.closest("[data-view]"); if(nav){state.view=nav.dataset.view;render();$("#sidebar")?.classList.remove("open");return}
-    const act=e.target.closest("[data-action]"); if(act){
-      const a=act.dataset.action;
-      if(a==="import")$("#fileInput").click();
-      else if(a==="settings")settings();
-      else if(a==="close-modal")closeModal();
-      else if(a==="save-playlist")savePlaylist();
-      else if(a==="new-playlist")newPlaylist();
-      else if(a==="play")togglePlay();
-      else if(a==="next")nextTrack();
-      else if(a==="prev")prevTrack();
-      else if(a==="shuffle"){state.shuffle=!state.shuffle;updatePlayer()}
-      else if(a==="repeat"){state.repeat=state.repeat==="off"?"all":state.repeat==="all"?"one":"off";updatePlayer()}
-      else if(a==="favorite"){if(state.currentId){state.favorites.has(state.currentId)?state.favorites.delete(state.currentId):state.favorites.add(state.currentId);saveMeta();updatePlayer();}}
-      else if(a==="queue-add"){if(state.currentId&&!state.queue.includes(state.currentId)){state.queue.push(state.currentId);toast("Added to queue.");}}
-      else if(a==="queue")queueDrawer();
-      else if(a==="queue-clear"){state.queue=[];queueDrawer()}
-      else if(a==="theme"){state.theme=state.theme==="dark"?"light":"dark";applyTheme();saveMeta()}
-      else if(a==="menu")$(".sidebar").classList.toggle("open");
-      else if(a==="sort"){state.sort=state.sort==="recent"?"title":state.sort==="title"?"artist":"recent";render()}
-      else if(a==="install")installPWA();
-      else if(a==="export-data")exportData();
-      else if(a==="confirm-add-playlist")confirmAddPlaylist(act.dataset.trackId);
-      return;
-    }
-    const tr=e.target.closest("[data-track]"); if(tr && !e.target.closest("[data-track-menu]")){playTrack(tr.dataset.track);return}
-    const menu=e.target.closest("[data-track-menu]"); if(menu){trackMenu(menu.dataset.trackMenu);return}
-    const pn=e.target.closest("[data-play-now]"); if(pn){const id=pn.dataset.playNow;closeModal();playTrack(id);return}
-    const aq=e.target.closest("[data-add-queue]"); if(aq){if(!state.queue.includes(aq.dataset.addQueue))state.queue.push(aq.dataset.addQueue);closeModal();toast("Added to queue.");return}
-    const fav=e.target.closest("[data-fav-track]"); if(fav){const id=fav.dataset.favTrack;state.favorites.has(id)?state.favorites.delete(id):state.favorites.add(id);saveMeta();closeModal();render();return}
-    const ap=e.target.closest("[data-add-playlist]"); if(ap){addToPlaylist(ap.dataset.addPlaylist);return}
-    const cap=e.target.closest("[data-confirm-add-playlist]"); if(cap){confirmAddPlaylist(cap.dataset.trackId);return}
-    const album=e.target.closest("[data-album]"); if(album){showCollection(album.dataset.album,state.tracks.filter(t=>(t.album||"Singles")===album.dataset.album));return}
-    const artist=e.target.closest("[data-artist]"); if(artist){showCollection(artist.dataset.artist,state.tracks.filter(t=>(t.artist||"Unknown artist")===artist.dataset.artist));return}
-    const pl=e.target.closest("[data-playlist]"); if(pl){const p=state.playlists.find(x=>x.id===pl.dataset.playlist);if(p)showCollection(p.name,p.trackIds.map(id=>state.tracks.find(t=>t.id===id)).filter(Boolean));}
-  });
-
-  $("#fileInput").addEventListener("change",e=>{importFiles(e.target.files);e.target.value=""});
-  $("#searchInput").addEventListener("input",e=>{state.filter=e.target.value;render()});
-  $("#seek").addEventListener("input",e=>{if(audio.duration)audio.currentTime=(Number(e.target.value)/100)*audio.duration});
-  $("#volume").addEventListener("input",e=>audio.volume=Number(e.target.value));
-  audio.volume=.85;
-  audio.addEventListener("timeupdate",updatePlayer);
-  audio.addEventListener("loadedmetadata",updatePlayer);
-  audio.addEventListener("play",()=>{updatePlayer();const t=state.tracks.find(x=>x.id===state.currentId);if(t)setMediaSession(t)});
-  audio.addEventListener("pause",()=>{updatePlayer();if("mediaSession"in navigator)navigator.mediaSession.playbackState="paused"});
-  audio.addEventListener("ended",nextTrack);
-  audio.addEventListener("error",()=>toast("This audio file cannot be decoded by the browser."));
-
-  document.addEventListener("keydown",e=>{
-    if(e.target.matches("input,textarea,select"))return;
-    if(e.code==="Space"){e.preventDefault();togglePlay()}
-    else if(e.key==="ArrowRight"){audio.currentTime=clamp(audio.currentTime+5,0,audio.duration||Infinity)}
-    else if(e.key==="ArrowLeft"){audio.currentTime=clamp(audio.currentTime-5,0,audio.duration||Infinity)}
-    else if(e.key.toLowerCase()==="n")nextTrack();
-    else if(e.key.toLowerCase()==="p")prevTrack();
-    else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){e.preventDefault();$("#searchInput").focus()}
-  });
-  if("mediaSession"in navigator){
-    const actions={play:togglePlay,pause:togglePlay,previoustrack:prevTrack,nexttrack:nextTrack,seekbackward:()=>audio.currentTime=clamp(audio.currentTime-10,0,audio.duration||0),seekforward:()=>audio.currentTime=clamp(audio.currentTime+10,0,audio.duration||0)};
-    for(const [k,fn] of Object.entries(actions))try{navigator.mediaSession.setActionHandler(k,fn)}catch{}
-  }
-
-  window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredInstall=e;$("#installBtn").hidden=false});
-  window.addEventListener("appinstalled",()=>{state.deferredInstall=null;$("#installBtn").hidden=true;toast("AURA installed.")});
-  async function installPWA(){if(!state.deferredInstall){toast("Use your browser's Install/Add to Home Screen option.");return}state.deferredInstall.prompt();await state.deferredInstall.userChoice;state.deferredInstall=null;$("#installBtn").hidden=true}
-
-  window.addEventListener("error",e=>console.error("AURA runtime error:",e.error||e.message));
-  window.addEventListener("unhandledrejection",e=>console.error("AURA async error:",e.reason));
-
-  (async()=>{await loadDB();applyTheme();if("serviceWorker"in navigator && location.protocol!=="file:")navigator.serviceWorker.register("./sw.js").catch(console.warn);render()})();
-})();
+// events
+addEventListener('click',async e=>{let a=e.target.closest('[data-action]');let v=e.target.closest('[data-view]');let card=e.target.closest('[data-id]');let mood=e.target.closest('[data-mood]');let pl=e.target.closest('[data-playlist]');if(v){setView(v.dataset.view);return}if(card&&!a){let t=state.tracks.find(x=>x.id===card.dataset.id);if(t)play(t);return}if(mood){playMood(mood.dataset.mood);return}if(pl){let arr=state.playlists[pl.dataset.playlist]||[];let ts=arr.map(id=>state.tracks.find(t=>t.id===id)).filter(Boolean);state.queue=ts;state.index=0;if(ts[0])loadCurrent(true);return}if(!a)return;let act=a.dataset.action;try{if(act==='play')togglePlay();else if(act==='next')next();else if(act==='prev')prev();else if(act==='shuffle'){state.shuffle=!state.shuffle;a.classList.toggle('active',state.shuffle);toast(state.shuffle?'Shuffle on':'Shuffle off')}else if(act==='repeat'){state.repeat=state.repeat==='off'?'all':state.repeat==='all'?'one':'off';a.textContent=state.repeat==='one'?'1↻':'↻';toast('Repeat '+state.repeat)}else if(act==='import')$('#files').click();else if(act==='menu')$('#sidebar').classList.toggle('open');else if(act==='theme'){document.body.classList.toggle('light');state.theme=document.body.classList.contains('light')?'light':'dark';localStorage.auraTheme=state.theme}else if(act==='queue')queueDrawer();else if(act==='favorite'){let t=current();if(t){state.favorites.has(t.id)?state.favorites.delete(t.id):state.favorites.add(t.id);await saveMeta('favorites',[...state.favorites]);updateNow();}}else if(act==='lyrics')setView('lyrics');else if(act==='settings')settings();else if(act==='sleep')settings();else if(act==='new-playlist')createPlaylist();else if(act==='play-all'){makeQueue(filtered());if(state.queue[0])loadCurrent(true)}else if(act==='smart')setView('smart');else if(act==='view-library')setView('library');else if(act==='install'&&installPrompt){installPrompt.prompt();installPrompt=null}}catch(err){toast('Something went wrong')}});
+$('#files').onchange=e=>{if(e.target.files.length)importFiles([...e.target.files]);e.target.value=''};$('#search').oninput=e=>{state.search=e.target.value;render()};$('#search').onkeydown=e=>{if(e.key==='Enter'){let t=filtered()[0];if(t)play(t)}};document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#search').focus()}else if(e.code==='Space'&&document.activeElement.tagName!=='INPUT'){e.preventDefault();togglePlay()}else if(e.key==='ArrowRight'&&!e.target.matches('input'))audio.currentTime=Math.min(audio.duration||0,audio.currentTime+5);else if(e.key==='ArrowLeft'&&!e.target.matches('input'))audio.currentTime=Math.max(0,audio.currentTime-5)});
+$('#seek').oninput=e=>{if(audio.duration)audio.currentTime=(+e.target.value/100)*audio.duration};$('#volume').oninput=e=>{audio.volume=+e.target.value;if(gain)gain.gain.value=+e.target.value};audio.volume=.85;audio.addEventListener('play',()=>{$('#play').textContent='❚❚';if(ctx&&ctx.state==='suspended')ctx.resume()});audio.addEventListener('pause',()=>$('#play').textContent='▶');audio.addEventListener('timeupdate',()=>{$('#cur').textContent=fmt(audio.currentTime);$('#dur').textContent=fmt(audio.duration||current()?.duration);$('#seek').value=audio.duration?(audio.currentTime/audio.duration*100):0;if(state.sleep&&audio.ended)clearTimeout(state.sleep);});audio.addEventListener('ended',next);audio.addEventListener('play',audioGraph,{once:true});audio.addEventListener('error',()=>toast('Audio could not be played in this browser'));
+addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('#install').hidden=false});
+addEventListener('load',async()=>{document.body.classList.toggle('light',state.theme==='light');await load();render();});
