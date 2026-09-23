@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0b12">
+  <meta name="description" content="AURA V3 — local-first music player for phone and PC.">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <title>AURA V3</title>
+</head>
+<body>
+  <div id="app" class="app">
+    <aside class="sidebar" aria-label="Main navigation">
+      <div class="brand">
+        <div class="brand-mark">A</div>
+        <div><strong>AURA</strong><span>V3</span></div>
+      </div>
+
+      <button class="nav-item active" data-view="home"><span>⌂</span> Home</button>
+      <button class="nav-item" data-view="library"><span>♫</span> Library</button>
+      <button class="nav-item" data-view="playlists"><span>☷</span> Playlists</button>
+      <button class="nav-item" data-view="albums"><span>▦</span> Albums</button>
+      <button class="nav-item" data-view="artists"><span>♙</span> Artists</button>
+      <button class="nav-item" data-view="favorites"><span>♥</span> Favorites</button>
+
+      <div class="sidebar-spacer"></div>
+      <button class="nav-item" data-action="import"><span>＋</span> Add music</button>
+      <button class="nav-item" data-action="settings"><span>⚙</span> Settings</button>
+      <div class="side-status"><span class="status-dot"></span><span id="storageStatus">Local library</span></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn mobile-only" data-action="menu" aria-label="Open menu">☰</button>
+        <div class="search-wrap">
+          <span>⌕</span>
+          <input id="searchInput" type="search" placeholder="Search songs, artists, albums..." autocomplete="off">
+          <kbd>Ctrl K</kbd>
+        </div>
+        <div class="top-actions">
+          <button class="icon-btn" data-action="install" id="installBtn" hidden title="Install AURA">⇩</button>
+          <button class="icon-btn" data-action="theme" title="Toggle theme">◐</button>
+        </div>
+      </header>
+
+      <section id="content" class="content" tabindex="-1"></section>
+    </main>
+
+    <aside class="now-panel" id="nowPanel">
+      <div class="now-art" id="nowArt"><div class="vinyl"></div><span>A</span></div>
+      <div class="now-meta">
+        <div class="eyebrow">NOW PLAYING</div>
+        <h2 id="nowTitle">Nothing playing</h2>
+        <p id="nowArtist">Choose a song from your library</p>
+      </div>
+      <div class="wave-mini" id="waveMini" aria-hidden="true"></div>
+      <div class="now-actions">
+        <button class="round-btn" data-action="favorite" id="favoriteBtn" title="Favorite">♡</button>
+        <button class="round-btn" data-action="queue-add" title="Add current to queue">＋</button>
+      </div>
+    </aside>
+
+    <footer class="player">
+      <div class="player-track">
+        <div class="thumb" id="playerThumb">A</div>
+        <div class="player-labels">
+          <strong id="playerTitle">Nothing playing</strong>
+          <span id="playerArtist">AURA V3</span>
+        </div>
+      </div>
+      <div class="controls">
+        <button class="player-btn" data-action="shuffle" id="shuffleBtn" title="Shuffle">⤨</button>
+        <button class="player-btn" data-action="prev" title="Previous">◀◀</button>
+        <button class="play-btn" data-action="play" id="playBtn" title="Play/Pause">▶</button>
+        <button class="player-btn" data-action="next" title="Next">▶▶</button>
+        <button class="player-btn" data-action="repeat" id="repeatBtn" title="Repeat">↻</button>
+      </div>
+      <div class="timeline">
+        <span id="currentTime">0:00</span>
+        <input id="seek" type="range" min="0" max="100" value="0" step="0.1" aria-label="Seek">
+        <span id="duration">0:00</span>
+      </div>
+      <div class="volume">
+        <span>🔊</span><input id="volume" type="range" min="0" max="1" value="0.85" step="0.01" aria-label="Volume">
+      </div>
+      <button class="queue-btn" data-action="queue" title="Queue">☰</button>
+    </footer>
+  </div>
+
+  <input id="fileInput" type="file" accept="audio/*" multiple hidden>
+  <audio id="audio" preload="metadata"></audio>
+
+  <dialog id="modal" class="modal">
+    <div id="modalBody"></div>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
